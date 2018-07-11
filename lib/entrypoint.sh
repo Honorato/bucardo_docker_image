@@ -90,6 +90,20 @@ sync_attr() {
   echo $value
 }
 
+customcols_attr() {
+  local customcols=$1
+  local attr=$2
+  local attr_type=$3
+  local value="$(jq ".customcols[$customcols].$attr" /media/bucardo/bucardo.json)"
+  case "$attr_type" in
+    "string") validate_string_attr "$attr" "$value" ;;
+    "list") validate_list_attr "$attr" "$value" ;;
+    "integer") validate_integer_attr "$attr" "$value" ;;
+    *) echo "Invalid type for $attr." 1>&2; exit 2;;
+  esac
+  echo $value
+}
+
 #First validate onetimecopy is an integer and then validate if it's 0,1 or 2
 one_time_copy_attr() {
   local sync_index=$1
@@ -166,6 +180,18 @@ add_syncs_to_bucardo() {
   done
 }
 
+add_customcols_to_bucardo() {
+  local customcols_index=0
+  local num_customcols=$(jq '.customcols' /media/bucardo/bucardo.json | grep select | wc -l)
+  set -f
+  while [[ $customcols_index -lt $num_customcols ]]; do
+    echo "[CONTAINER] Adding customcols$customcols_index to Bucardo..."
+    run_bucardo_command "add customcols $(customcols_attr $customcols_index table string) \
+                         $(customcols_attr $customcols_index select string)"
+    customcols_index=$(expr $customcols_index + 1)
+  done
+}
+
 start_bucardo() {
   echo "[CONTAINER] Starting Bucardo..."
   run_bucardo_command "start"
@@ -184,6 +210,7 @@ main() {
   start_postgres 2> /dev/null
   add_databases_to_bucardo
   add_syncs_to_bucardo
+  add_customcols_to_bucardo
   start_bucardo
   bucardo_status
 }
