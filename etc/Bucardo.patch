@@ -1,0 +1,83 @@
+diff --git a/Bucardo.pm b/Bucardo.pm
+index 2ebb9d7..86f9e98 100644
+--- a/Bucardo.pm
++++ b/Bucardo.pm
+@@ -5325,7 +5325,7 @@ sub disable_triggers {
+     my $dbname = $db->{name};
+     if ($dbh->{pg_server_version} >= 80300) {
+         $self->glog("Setting session_replication_role to replica for database $dbname", LOG_VERBOSE);
+-        $dbh->do(q{SET session_replication_role = 'replica'});
++        $dbh->do(q{DO LANGUAGE plpgsql $BODY$ DECLARE somevar VARCHAR; BEGIN SELECT p.proname INTO somevar FROM pg_catalog.pg_proc p WHERE p.proname = 'azure_session_replication_role' LIMIT 1; IF NOT FOUND THEN SET session_replication_role = 'replica'; ELSE PERFORM azure_session_replication_role('replica'); END IF; END $BODY$;});
+ 
+         $db->{triggers_enabled} = 0;
+         return undef;
+@@ -5391,8 +5391,10 @@ sub enable_triggers {
+ 
+         ## If we are using srr, just flip it back to the default
+         if ($db->{dbh}{pg_server_version} >= 80300) {
+-            $self->glog("Setting session_replication_role to default for database $dbname", LOG_VERBOSE);
+-            $dbh->do(q{SET session_replication_role = default}); ## Assumes a sane default!
++            $self->glog("Setting 
++             to default for database $dbname", LOG_VERBOSE);
++            $dbh->do(q{DO LANGUAGE plpgsql $BODY$ DECLARE somevar VARCHAR; BEGIN SELECT p.proname INTO somevar FROM pg_catalog.pg_proc p WHERE p.proname = 'azure_session_replication_role' LIMIT 1; IF NOT FOUND THEN SET session_replication_role = default; ELSE PERFORM azure_session_replication_role('origin'); END IF; END $BODY$;});
++
+             $dbh->commit();
+             $db->{triggers_enabled} = time;
+             next;
+@@ -9675,11 +9677,7 @@ sub push_rows {
+             ## Use columnlist below so we never have to worry about the order
+             ## of the columns on the target
+ 
+-            if ('postgres' eq $type) {
+-                my $tgtcmd = "$self->{sqlprefix}COPY $tname$columnlist FROM STDIN";
+-                $t->{dbh}->do($tgtcmd);
+-            }
+-            elsif ('flatpg' eq $type) {
++            if ('flatpg' eq $type) {
+                 print {$t->{filehandle}} "COPY $tname$columnlist FROM STDIN;\n";
+                 $self->glog(qq{Appended to flatfile "$t->{filename}"}, LOG_VERBOSE);
+             }
+@@ -9694,7 +9692,10 @@ sub push_rows {
+                 ## No prep needed, other than to reset our count of changes
+                 $t->{redis} = 0;
+             }
+-            elsif ('mysql' eq $type or 'drizzle' eq $type or 'mariadb' eq $type) {
++            elsif ('mysql' eq $type 
++            		or 'drizzle' eq $type 
++            		or 'mariadb' eq $type
++            		or 'postgres' eq $type) {
+                 my $tgtcmd = "INSERT INTO $tname$columnlist VALUES (";
+                 $tgtcmd .= '?,' x @$cols;
+                 $tgtcmd =~ s/,$/)/o;
+@@ -9771,12 +9772,8 @@ sub push_rows {
+ 
+                     chomp $buffer;
+ 
+-                    ## For Postgres, we simply do COPY to COPY
+-                    if ('postgres' eq $type) {
+-                        $t->{dbh}->pg_putcopydata("$buffer\n");
+-                    }
+                     ## For flat files destined for Postgres, just do a tab-delimited dump
+-                    elsif ('flatpg' eq $type) {
++                    if ('flatpg' eq $type) {
+                         print {$t->{filehandle}} "$buffer\n";
+                     }
+                     ## For other flat files, make a standard VALUES list
+@@ -9822,7 +9819,8 @@ sub push_rows {
+                             or 'mariadb' eq $type
+                             or 'drizzle' eq $type
+                             or 'oracle' eq $type
+-                            or 'sqlite' eq $type) {
++                            or 'sqlite' eq $type
++                            or 'postgres' eq $type) {
+                         my @cols = map { $_ = undef if $_ eq '\\N'; $_; } split /\t/, $buffer, -1;
+                         for my $cindex (0..@cols) {
+                             next unless defined $cols[$cindex];
+@@ -9876,7 +9874,6 @@ sub push_rows {
+ 
+             if ('postgres' eq $type) {
+                 my $dbh = $t->{dbh};
+-                $dbh->pg_putcopyend();
+                 ## Same bug as above
+                 if ($self->{dbdpgversion} < 21801) {
+                     $dbh->do('SELECT 1');

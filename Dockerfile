@@ -7,6 +7,7 @@ RUN apt-get -y update \
     && apt-get -y upgrade
 
 RUN apt-get -y install postgresql-9.5 bucardo jq
+RUN apt-get -y install patch
 
 COPY etc/pg_hba.conf /etc/postgresql/9.5/main/
 COPY etc/bucardorc /etc/bucardorc
@@ -24,4 +25,8 @@ COPY lib/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 VOLUME "/media/bucardo"
+
+COPY etc/Bucardo.patch /tmp/Bucardo.patch
+RUN patch /usr/share/perl5/Bucardo.pm /tmp/Bucardo.patch
+
 CMD ["/bin/bash","-c","/entrypoint.sh"]
